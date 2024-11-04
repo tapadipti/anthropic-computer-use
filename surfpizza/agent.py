@@ -18,6 +18,7 @@ from threadmem import RoleMessage, RoleThread
 from toolfuse.util import AgentUtils
 
 from .tool import SemanticDesktop, router
+from .anthropic.computer import Action
 
 logging.basicConfig(level=logging.INFO)
 logger: Final = logging.getLogger(__name__)
@@ -83,19 +84,46 @@ class SurfPizza(TaskAgent):
         console.print(f"Desktop info: {screen_size}")
 
         # Get the json schema for the tools, excluding actions that aren't useful
-        tools = semdesk.json_schema(
-            exclude_names=[
-                "move_mouse",
-                "click",
-                "drag_mouse",
-                "mouse_coordinates",
-                "take_screenshot",
-                "open_url",
-                "double_click",
-            ]
+        tools_semdesk = semdesk.json_schema(
+            # exclude_names=[
+            #     "move_mouse",
+            #     "click",
+            #     "drag_mouse",
+            #     "mouse_coordinates",
+            #     "take_screenshot",
+            #     "open_url",
+            #     "double_click",
+            # ]
         )
+        console.print("tools semdesk: ", style="purple")
+        console.print(JSON.from_data(tools_semdesk))
+        tools = list(Action.__args__)
         console.print("tools: ", style="purple")
         console.print(JSON.from_data(tools))
+
+        tools_mapping = {
+            "key": "hot_key",
+            "type": "type_text",
+            "mouse_move": "move_mouse",
+            "left_click": "click",
+            "left_click_drag": "drag_mouse",
+            "right_click": "N/A",
+            "middle_click": "N/A",
+            "double_click": "double_click",
+            "screenshot": "take_screenshots",
+            "cursor_position": "mouse_coordinates",
+        }
+        # Unmapped actions: click_object, result, wait, exec, press_key, scroll
+        # Unmapped actions that used ot be excluded: take_screenshot, open_url
+        # Actions with no AgentDesk equivalent: right_click, middle_click
+
+
+        # Prompt copied from Anthropic and modified
+        anthropic_prompt = f"""
+        * You are utilising a Linux virtual machine with internet access.
+        * To open firefox or web browser, please just click on the web browser icon.  This will open the Firefox web browser.
+        * When using Firefox, if a startup wizard appears, IGNORE IT.  Do not even click "skip this step".  Instead, click on the address bar where it says "Search or enter address", and enter the appropriate search term or URL there.
+        """
 
         # Create our thread and start with a system prompt
         thread = RoleThread()
@@ -104,7 +132,12 @@ class SurfPizza(TaskAgent):
             msg=(
                 "You are an AI assistant which uses a devices to accomplish tasks. "
                 f"Your current task is {task.description}, and your available tools are {tools} "
-                "For each screenshot I will send you please return the result chosen action as  "
+                f"{anthropic_prompt}"
+                "For each screenshot I will send you please identify the chosen action from the list of available tools  "
+                f"These tools are mapped to tools from a Desktop instance according to this mapping: {tools_mapping} "
+                "Please find the mapped Desktop tool for your identified chosen action. "
+                "Then, return the mapped Desktop tool for the chosen action as  "
+                # "For each screenshot I will send you please return the result chosen action as  "
                 f"raw JSON adhearing to the schema {V1ActionSelection.model_json_schema()} "
                 "Let me know when you are ready and I'll send you the first screenshot"
             ),
@@ -256,6 +289,15 @@ class SurfPizza(TaskAgent):
 
             # Take the selected action
             try:
+                console.print("\n\nselection.action.parameters: ", selection.action.parameters)
+                if action.name == "click" and "coordinates" in selection.action.parameters:
+                    selection.action.parameters["x"] = selection.action.parameters["coordinates"][0]
+                    selection.action.parameters["y"] = selection.action.parameters["coordinates"][1]
+                    del selection.action.parameters["coordinates"]
+                elif action.name == "take_screenshots" and "coordinates" in selection.action.parameters:
+                    del selection.action.parameters["coordinates"]
+                    console.print("\n\nAction = take_screenshots")
+                console.print("\n\nselection.action.parameters after modification: ", selection.action.parameters)
                 action_response = semdesk.use(action, **selection.action.parameters)
             except Exception as e:
                 raise ValueError(f"Trouble using action: {e}")
@@ -272,7 +314,7 @@ class SurfPizza(TaskAgent):
                 prompt=response.prompt,
                 action=selection.action,
                 tool=semdesk.ref(),
-                result=action_response,
+                result=None,#action_response,
                 agent_id=self.name(),
                 model=response.model,
             )

@@ -21,7 +21,9 @@ from .img import (
     image_to_b64,
 )
 
-router = Router.from_env()
+router = Router(preference=["anthropic/claude-3-5-sonnet-20241022"])
+# router = Router.from_env()
+
 console = Console()
 
 logger = logging.getLogger(__name__)
