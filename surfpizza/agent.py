@@ -83,23 +83,19 @@ class SurfPizza(TaskAgent):
         screen_size = info["screen_size"]
         console.print(f"Desktop info: {screen_size}")
 
-        # Get the json schema for the tools, excluding actions that aren't useful
-        tools_semdesk = semdesk.json_schema(
-            # exclude_names=[
-            #     "move_mouse",
-            #     "click",
-            #     "drag_mouse",
-            #     "mouse_coordinates",
-            #     "take_screenshot",
-            #     "open_url",
-            #     "double_click",
-            # ]
-        )
-        console.print("tools semdesk: ", style="purple")
-        console.print(JSON.from_data(tools_semdesk))
-        tools = list(Action.__args__)
-        console.print("tools: ", style="purple")
-        console.print(JSON.from_data(tools))
+        # # Get the json schema for the tools, excluding actions that aren't useful
+        # tools = semdesk.json_schema(
+        #     exclude_names=[
+        #         "click_object",
+        #     ]
+        # )
+        # console.print("tools: ", style="purple")
+        # console.print(JSON.from_data(tools))
+
+        # Get the list of tools that Anthropic can return
+        tools_anthropic = list(Action.__args__)
+        console.print("tools anthropic: ", style="purple")
+        console.print(JSON.from_data(tools_anthropic))
 
         tools_mapping = {
             "key": "hot_key",
@@ -121,7 +117,8 @@ class SurfPizza(TaskAgent):
         # Prompt copied from Anthropic and modified
         anthropic_prompt = f"""
         * You are utilising a Linux virtual machine with internet access.
-        * To open firefox or web browser, please just click on the web browser icon.  This will open the Firefox web browser.
+        * The machine contains a Firebox web browser which you can use to access the Internet.
+        * To open Firefox, just click on the web browser icon.  You do not need to open apps or file manager to open Firefox.
         * When using Firefox, if a startup wizard appears, IGNORE IT.  Do not even click "skip this step".  Instead, click on the address bar where it says "Search or enter address", and enter the appropriate search term or URL there.
         """
 
@@ -131,13 +128,12 @@ class SurfPizza(TaskAgent):
             role="user",
             msg=(
                 "You are an AI assistant which uses a devices to accomplish tasks. "
-                f"Your current task is {task.description}, and your available tools are {tools} "
+                f"Your current task is {task.description}, and your available tools are {tools_anthropic} "
                 f"{anthropic_prompt}"
                 "For each screenshot I will send you please identify the chosen action from the list of available tools  "
                 f"These tools are mapped to tools from a Desktop instance according to this mapping: {tools_mapping} "
                 "Please find the mapped Desktop tool for your identified chosen action. "
                 "Then, return the mapped Desktop tool for the chosen action as  "
-                # "For each screenshot I will send you please return the result chosen action as  "
                 f"raw JSON adhearing to the schema {V1ActionSelection.model_json_schema()} "
                 "Let me know when you are ready and I'll send you the first screenshot"
             ),
@@ -294,9 +290,8 @@ class SurfPizza(TaskAgent):
                     selection.action.parameters["x"] = selection.action.parameters["coordinates"][0]
                     selection.action.parameters["y"] = selection.action.parameters["coordinates"][1]
                     del selection.action.parameters["coordinates"]
-                elif action.name == "take_screenshots" and "coordinates" in selection.action.parameters:
+                elif action.name in ["take_screenshots", "double_click"] and "coordinates" in selection.action.parameters:
                     del selection.action.parameters["coordinates"]
-                    console.print("\n\nAction = take_screenshots")
                 console.print("\n\nselection.action.parameters after modification: ", selection.action.parameters)
                 action_response = semdesk.use(action, **selection.action.parameters)
             except Exception as e:
